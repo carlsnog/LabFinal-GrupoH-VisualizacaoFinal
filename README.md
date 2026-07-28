@@ -1,1 +1,1 @@
-# -LabFinal-GrupoH-VisualizacaoFinal
+# LabFinal-GrupoH-VisualizacaoFinal
