@@ -173,7 +173,7 @@
       <li>Clique nas categorias da legenda para filtrar treinamentos, eventos com medalha ou outras atividades.</li>
       <li>Clique em um ponto da linha para selecionar o dia e atualizar a distribuição por horário.</li>
       <li>Use a barra de zoom abaixo da visão diária para ampliar um intervalo de datas.</li>
-      <li>Passe o cursor sobre pontos e barras para ver valores; clique em uma barra de horário para fixar os detalhes dos eventos.</li>
+      <li>Passe o cursor sobre um segmento da barra para ver somente aquela categoria; clique para fixar seus detalhes.</li>
     </ul>
     <p class="source-note" style="text-align: justify; padding: 0 50px 24px 50px">
       Fonte: dataset olympics_events.csv, programação dos Jogos Olímpicos de Inverno
@@ -243,6 +243,7 @@
       return total > bestTotal ? date : best;
     }, dates[0]);
     let selectedHour = null;
+    let selectedCategory = null;
     let legendSelection = {
       [CATEGORY.training]: true,
       [CATEGORY.medal]: true,
@@ -253,6 +254,9 @@
       return Object.entries(CATEGORY)
         .filter(([, label]) => legendSelection[label] !== false)
         .map(([key]) => key);
+    }
+    function categoryKeyFromLabel(label) {
+      return Object.entries(CATEGORY).find(([, value]) => value === label)?.[0] ?? null;
     }
     function eventsForDate(date) {
       const active = new Set(activeCategories());
@@ -282,6 +286,7 @@
       if (selectedHour === null) return [];
       return eventsForDate(selectedDate)
         .filter((event) => Number.parseInt(event.start_time.slice(0, 2), 10) === selectedHour)
+        .filter((event) => selectedCategory === null || event._category === selectedCategory)
         .sort((a, b) => a.start_time.localeCompare(b.start_time));
     }
     function detailGraphic(hourly, compact) {
@@ -298,12 +303,13 @@
           + `${truncate(event.venue_name, compact ? 90 : 42)}`;
       });
       if (total > sample.length) {
-        lines.push(`+ ${total - sample.length} evento(s) — passe o cursor na barra para mais detalhes da lista`);
+        lines.push(`+ ${total - sample.length} evento(s) — passe o cursor na barra para ver mais detalhes da lista`);
       }
       if (!total) lines.push("Nenhum evento nas categorias ativas.");
       const left = compact ? 62 : "69%";
       const headingTop = compact ? 790 : 545;
       const detailWidth = compact ? Math.max(260, chartDom.clientWidth - 124) : 380;
+      const categorySuffix = selectedCategory === null ? "" : ` · ${CATEGORY[selectedCategory]}`;
       return [
         {
           id: "details-heading",
@@ -326,7 +332,7 @@
           top: headingTop + 27,
           silent: true,
           style: {
-            text: `${longDate(selectedDate)} · ${total} evento(s)`,
+            text: `${longDate(selectedDate)}${categorySuffix} · ${total} evento(s)`,
             width: detailWidth,
             overflow: "break",
             font: "13px Roboto, Arial",
@@ -363,6 +369,7 @@
         data: hourly.map((item) => ({
           value: item[key],
           itemStyle: item.hour === selectedHour
+            && (selectedCategory === null || selectedCategory === key)
             ? { color, borderColor: COLORS.selected, borderWidth: 2 }
             : { color }
         }))
@@ -429,24 +436,33 @@
           }
         ],
         tooltip: {
-          trigger: "axis",
+          trigger: "item",
           confine: true,
           backgroundColor: "rgba(27, 39, 51, 0.96)",
           borderWidth: 0,
           textStyle: { color: "#fff", fontSize: 12 },
-          formatter(params) {
-            if (!params || !params.length) return "";
-            if (params[0].axisIndex === 0) {
-              const date = dates[params[0].dataIndex];
-              const rows = params
-                .filter((item) => typeof item.value === "number")
-                .map((item) => `${item.marker}${escapeHtml(item.seriesName)}: <b>${item.value}</b>`);
+          formatter(param) {
+            if (!param) return "";
+            if (param.seriesIndex <= 2) {
+              const date = dates[param.dataIndex];
+              const rows = [
+                ["training", CATEGORY.training, COLORS.training],
+                ["medal", CATEGORY.medal, COLORS.medal],
+                ["other", CATEGORY.other, COLORS.other]
+              ].filter(([, label]) => legendSelection[label] !== false)
+                .map(([key, label, color]) =>
+                  `<span style="display:inline-block;margin-right:5px;border-radius:50%;`
+                  + `width:9px;height:9px;background:${color}"></span>`
+                  + `${escapeHtml(label)}: <b>${daily[date][key]}</b>`
+                );
               return `<b>${escapeHtml(longDate(date))}</b><br>${rows.join("<br>")}<br>`
                 + '<span style="opacity:.8">Clique para selecionar o dia</span>';
             }
-            const hour = params[0].dataIndex;
+            const hour = param.dataIndex;
+            const hoveredCategory = categoryKeyFromLabel(param.seriesName);
             const detail = eventsForDate(selectedDate)
               .filter((event) => Number.parseInt(event.start_time.slice(0, 2), 10) === hour)
+              .filter((event) => event._category === hoveredCategory)
               .sort((a, b) => a.start_time.localeCompare(b.start_time));
             const list = detail.slice(0, 10).map((event) =>
               `<div style="margin-top:6px"><b>${escapeHtml(event.start_time)} · `
@@ -456,7 +472,8 @@
             ).join("");
             const more = detail.length > 10
               ? `<br><span style="opacity:.8">+ ${detail.length - 10} evento(s)</span>` : "";
-            return `<b>${String(hour).padStart(2, "0")}h · ${detail.length} evento(s)</b>${list}${more}`;
+            return `<b>${String(hour).padStart(2, "0")}h · `
+              + `${escapeHtml(param.seriesName)} · ${detail.length} evento(s)</b>${list}${more}`;
           }
         },
         xAxis: [
@@ -539,6 +556,7 @@
     chart.on("legendselectchanged", (params) => {
       legendSelection = params.selected;
       selectedHour = null;
+      selectedCategory = null;
       refresh();
     });
     chart.on("click", (params) => {
@@ -546,9 +564,11 @@
       if (params.seriesIndex <= 2) {
         selectedDate = dates[params.dataIndex];
         selectedHour = null;
+        selectedCategory = null;
         refresh();
       } else {
         selectedHour = params.dataIndex;
+        selectedCategory = categoryKeyFromLabel(params.seriesName);
         refresh();
       }
     });
