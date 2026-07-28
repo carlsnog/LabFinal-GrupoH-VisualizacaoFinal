@@ -298,7 +298,7 @@
           + `${truncate(event.venue_name, compact ? 90 : 42)}`;
       });
       if (total > sample.length) {
-        lines.push(`+ ${total - sample.length} evento(s) — passe o cursor na barra para ver a lista completa`);
+        lines.push(`+ ${total - sample.length} evento(s) — passe o cursor na barra para mais detalhes da lista`);
       }
       if (!total) lines.push("Nenhum evento nas categorias ativas.");
       const left = compact ? 62 : "69%";
